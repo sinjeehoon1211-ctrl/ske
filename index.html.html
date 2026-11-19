@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>3D 다리 모형 — 고관절 운동</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #eef1f4; font-family: -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; color: #1f2933; overflow: hidden; }
+  #app { display: flex; flex-direction: column; height: 100%; }
+  #view { position: relative; flex: 1 1 auto; min-height: 0; }
+  #view canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  .top { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; gap: 8px; }
+  .title { background: rgba(255,255,255,.88); border-radius: 10px; padding: 8px 12px; font-size: 13px; line-height: 1.45; pointer-events: auto; }
+  .title b { font-size: 15px; display: block; }
+  .title span { color: #66727f; }
+  .tools { display: flex; flex-direction: column; gap: 6px; pointer-events: auto; }
+  .tools button, .presets button { border: 1px solid #cfd6dd; background: #fff; border-radius: 8px; padding: 6px 10px; font-size: 12.5px; color: #1f2933; cursor: pointer; white-space: nowrap; }
+  .tools button.on, .presets button.on { background: #1f6feb; color: #fff; border-color: #1f6feb; }
+  #panel { flex: 0 0 auto; background: #fff; border-top: 1px solid #d9dfe5; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); max-height: 52vh; overflow-y: auto; }
+  .row { margin-bottom: 12px; }
+  .row-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 13.5px; margin-bottom: 4px; }
+  .row-head .name { font-weight: 600; }
+  .row-head .val { font-variant-numeric: tabular-nums; color: #1f6feb; font-weight: 600; }
+  .ends { display: flex; justify-content: space-between; font-size: 11px; color: #7b8794; margin-top: 2px; }
+  input[type=range] { width: 100%; height: 28px; accent-color: #1f6feb; }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .rom { margin-top: 10px; font-size: 11.5px; color: #66727f; line-height: 1.5; }
+  .sep { height: 1px; background: #eef1f4; margin: 4px 0 12px; }
+  .sub { font-size: 11px; color: #9aa5b1; font-weight: 400; margin-left: 4px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="view">
+    <div class="top">
+      <div class="title"><b>오른쪽 다리 · 고관절</b><span id="motion">중립 자세</span></div>
+      <div class="tools">
+        <button id="skinBtn">피부 보기</button>
+        <button id="frontBtn">정면</button>
+        <button id="sideBtn">측면</button>
+        <button id="demoBtn">자동 시연</button>
+      </div>
+    </div>
+  </div>
+  <div id="panel">
+    <div class="row">
+      <div class="row-head"><span class="name">굴곡 / 신전 <span class="sub">시상면</span></span><span class="val" id="flexVal">0°</span></div>
+      <input type="range" id="flex" min="-30" max="120" value="0">
+      <div class="ends"><span>← 신전 30°</span><span>굴곡 120° →</span></div>
+    </div>
+    <div class="row">
+      <div class="row-head"><span class="name">외전 / 내전 <span class="sub">관상면</span></span><span class="val" id="abdVal">0°</span></div>
+      <input type="range" id="abd" min="-30" max="45" value="0">
+      <div class="ends"><span>← 내전 30°</span><span>외전 45° →</span></div>
+    </div>
+    <div class="row">
+      <div class="row-head"><span class="name">내회전 / 외회전 <span class="sub">수평면</span></span><span class="val" id="rotVal">0°</span></div>
+      <input type="range" id="rot" min="-45" max="40" value="0">
+      <div class="ends"><span>← 외회전 45°</span><span>내회전 40° →</span></div>
+    </div>
+    <div class="sep"></div>
+    <div class="row">
+      <div class="row-head"><span class="name">무릎 굴곡 <span class="sub">보조</span></span><span class="val" id="kneeVal">0°</span></div>
+      <input type="range" id="knee" min="0" max="135" value="0">
+      <div class="ends"><span>0°</span><span>135° →</span></div>
+    </div>
+    <div class="presets">
+      <button data-p="0,0,0,0">중립</button>
+      <button data-p="90,0,0,90">앉은 자세</button>
+      <button data-p="120,0,0,120">최대 굴곡</button>
+      <button data-p="-20,0,0,0">신전</button>
+      <button data-p="0,40,0,0">외전</button>
+      <button data-p="0,0,-40,0">외회전</button>
+    </div>
+    <div class="rom">참고 정상 ROM(대략): 굴곡 0–120° · 신전 0–30° · 외전 0–45° · 내전 0–30° · 내회전 0–40° · 외회전 0–45°<br>화면을 드래그하면 회전, 두 손가락으로 확대/축소할 수 있어요.</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+  const view = document.getElementById('view');
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setClearColor(0xeef1f4);
+  view.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 200);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.enablePan = false;
+  controls.minDistance = 6;
+  controls.maxDistance = 30;
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xb8c2cc, 0.85));
+  const key = new THREE.DirectionalLight(0xffffff, 0.75);
+  key.position.set(5, 8, 10); scene.add(key);
+  const rim = new THREE.DirectionalLight(0xffffff, 0.35);
+  rim.position.set(-6, 3, -8); scene.add(rim);
+
+  // Materials
+  const bone = new THREE.MeshStandardMaterial({ color: 0xeee3c8, roughness: 0.6, metalness: 0.02 });
+  const boneDark = new THREE.MeshStandardMaterial({ color: 0xd9caa6, roughness: 0.65 });
+  const cartilage = new THREE.MeshStandardMaterial({ color: 0xa9d3e8, roughness: 0.35, transparent: true, opacity: 0.85 });
+  const jointGlow = new THREE.MeshStandardMaterial({ color: 0x1f6feb, emissive: 0x1f6feb, emissiveIntensity: 0.35, transparent: true, opacity: 0.55 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0xf0b9a0, roughness: 0.7, transparent: true, opacity: 0.28, depthWrite: false });
+  const skinParts = [];
+
+  // Helpers
+  const UP = new THREE.Vector3(0, 1, 0);
+  function cyl(a, b, r1, r2, mat, seg) {
+    const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b);
+    const dir = new THREE.Vector3().subVectors(B, A);
+    const len = dir.length();
+    const g = new THREE.CylinderGeometry(r2, r1, len, seg || 20, 1);
+    const m = new THREE.Mesh(g, mat);
+    m.position.copy(A).addScaledVector(dir, 0.5);
+    m.quaternion.setFromUnitVectors(UP, dir.clone().normalize());
+    return m;
+  }
+  function ball(p, r, mat, s) {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(r, 28, 20), mat);
+    m.position.set(...p);
+    if (s) m.scale.set(...s);
+    return m;
+  }
+
+  const root = new THREE.Group();
+  root.position.y = 3.6;
+  scene.add(root);
+
+  // ---------- Pelvis & lower spine (static) ----------
+  const pelvis = new THREE.Group();
+  root.add(pelvis);
+  [-1, 1].forEach(side => {
+    const hx = side * 0.9;
+    // Ilium wing
+    const wing = ball([side * 1.15, 1.05, -0.15], 1, bone, [0.95, 1.05, 0.28]);
+    wing.rotation.y = side * -0.55;
+    wing.rotation.z = side * 0.25;
+    pelvis.add(wing);
+    // Iliac crest rim
+    const crest = ball([side * 1.3, 1.85, -0.2], 0.16, boneDark, [3.2, 0.9, 1]);
+    crest.rotation.y = side * -0.55;
+    pelvis.add(crest);
+    // Body of ilium down to acetabulum
+    pelvis.add(cyl([side * 1.0, 0.6, -0.05], [hx, 0.05, 0], 0.38, 0.32, bone));
+    // Acetabulum (socket rim)
+    const socket = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.07, 12, 30), boneDark);
+    socket.position.set(hx + side * 0.08, 0, 0);
+    socket.rotation.y = Math.PI / 2 + side * 0.35;
+    pelvis.add(socket);
+    // Superior pubic ramus -> symphysis
+    pelvis.add(cyl([hx - side * 0.1, -0.05, 0.15], [side * 0.14, -0.3, 0.62], 0.13, 0.11, bone));
+    // Ischium & inferior ramus
+    pelvis.add(cyl([hx, -0.15, -0.15], [side * 0.65, -0.9, -0.25], 0.17, 0.2, bone));
+    pelvis.add(ball([side * 0.65, -0.95, -0.25], 0.22, bone));
+    pelvis.add(cyl([side * 0.6, -0.95, -0.2], [side * 0.16, -0.62, 0.55], 0.1, 0.1, bone));
+    pelvis.add(ball([side * 0.12, -0.45, 0.62], 0.16, boneDark, [0.7, 1.4, 1]));
+  });
+  // Sacrum & coccyx
+  pelvis.add(cyl([0, 1.5, -0.65], [0, 0.35, -0.9], 0.55, 0.22, bone, 5));
+  pelvis.add(cyl([0, 0.35, -0.9], [0, 0.0, -0.75], 0.2, 0.08, boneDark));
+  // Lumbar vertebrae
+  for (let i = 0; i < 3; i++) {
+    const y = 1.85 + i * 0.5;
+    pelvis.add(cyl([0, y, -0.45], [0, y + 0.34, -0.45], 0.36, 0.36, bone, 24));
+    pelvis.add(cyl([0, y + 0.34, -0.45], [0, y + 0.48, -0.45], 0.3, 0.3, cartilage, 24));
+    pelvis.add(cyl([0, y + 0.17, -0.7], [0, y + 0.12, -1.2], 0.09, 0.06, boneDark));
+  }
+
+  // ---------- Leg builder ----------
+  function buildLeg(side) {
+    // side = -1 right leg (person's right is -X), +1 left leg
+    const L = side; // lateral direction
+    const hip = new THREE.Group();
+    hip.position.set(side * 0.9, 0, 0);
+    hip.rotation.order = 'XZY';
+    root.add(hip);
+
+    // Femoral head at the pivot
+    hip.add(ball([0, 0, 0], 0.28, bone));
+    hip.add(ball([0, 0, 0], 0.3, cartilage)).scale.set(1, 1, 1);
+    // Neck
+    hip.add(cyl([0, 0, 0], [L * 0.5, -0.32, 0], 0.17, 0.2, bone));
+    // Greater & lesser trochanter
+    hip.add(ball([L * 0.62, -0.18, -0.05], 0.22, boneDark, [1, 1.3, 1]));
+    hip.add(ball([L * 0.38, -0.62, -0.08], 0.1, boneDark));
+    // Shaft (slightly bowed, angled toward knee)
+    hip.add(cyl([L * 0.52, -0.3, 0], [L * 0.42, -2.2, 0.06], 0.2, 0.17, bone));
+    hip.add(cyl([L * 0.42, -2.2, 0.06], [L * 0.28, -3.85, 0], 0.17, 0.24, bone));
+    // Condyles
+    hip.add(ball([L * 0.45, -4.05, -0.05], 0.24, bone, [1, 1, 1.25]));
+    hip.add(ball([L * 0.1, -4.05, -0.05], 0.24, bone, [1, 1, 1.25]));
+    // Patella
+    hip.add(ball([L * 0.28, -3.9, 0.32], 0.17, boneDark, [1, 1.25, 0.55]));
+
+    // Thigh skin
+    const thigh = cyl([L * 0.3, 0.1, 0], [L * 0.28, -4.0, 0], 0.78, 0.5, skinMat, 28);
+    hip.add(thigh); skinParts.push(thigh);
+
+    // Knee pivot
+    const knee = new THREE.Group();
+    knee.position.set(L * 0.28, -4.2, 0);
+    hip.add(knee);
+    // Tibial plateau & meniscus
+    knee.add(cyl([0, -0.02, 0], [0, -0.3, 0], 0.4, 0.34, bone, 28));
+    knee.add(cyl([0, 0.04, 0], [0, -0.02, 0], 0.41, 0.41, cartilage, 28));
+    // Tibia shaft
+    knee.add(cyl([0, -0.3, 0], [L * -0.05, -3.4, 0], 0.17, 0.14, bone));
+    knee.add(ball([L * -0.05, -3.45, 0], 0.2, bone, [1.1, 0.8, 1]));
+    knee.add(ball([L * -0.22, -3.55, 0.02], 0.09, boneDark)); // medial malleolus
+    // Fibula
+    knee.add(ball([L * 0.33, -0.4, -0.08], 0.1, boneDark));
+    knee.add(cyl([L * 0.33, -0.4, -0.08], [L * 0.28, -3.5, -0.05], 0.06, 0.07, boneDark));
+    knee.add(ball([L * 0.28, -3.62, -0.05], 0.09, boneDark)); // lateral malleolus
+
+    // Calf skin
+    const calf = cyl([0, -0.1, -0.05], [L * -0.02, -3.5, 0], 0.5, 0.3, skinMat, 28);
+    knee.add(calf); skinParts.push(calf);
+
+    // Foot
+    const foot = new THREE.Group();
+    foot.position.set(L * -0.02, -3.65, 0);
+    knee.add(foot);
+    foot.add(ball([0, 0, 0], 0.2, bone, [1, 0.8, 1.2]));            // talus
+    foot.add(ball([0, -0.25, -0.32], 0.2, bone, [0.9, 0.9, 1.4]));  // calcaneus
+    foot.add(ball([L * -0.03, -0.12, 0.3], 0.17, boneDark, [1.3, 0.8, 1])); // navicular/cuboid
+    const toesX = [-0.24, -0.12, 0, 0.12, 0.23];
+    toesX.forEach((tx, i) => {
+      const x = L * -tx; // big toe medial
+      const r = i === 0 ? 0.075 : 0.05;
+      foot.add(cyl([x * 0.6, -0.15, 0.4], [x, -0.33, 1.1], r, r * 0.85, bone, 12));
+      foot.add(cyl([x, -0.33, 1.12], [x, -0.36, 1.35 - i * 0.04], r * 0.85, r * 0.7, boneDark, 12));
+    });
+    const footSkin = ball([0, -0.22, 0.45], 0.5, skinMat, [0.75, 0.38, 1.9]);
+    foot.add(footSkin); skinParts.push(footSkin);
+
+    return { hip, knee, foot, side };
+  }
+
+  const right = buildLeg(-1);
+  const left = buildLeg(1);
+
+  // Hip joint highlight ring on the moving (right) leg
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.035, 12, 48), jointGlow);
+  ring.position.copy(right.hip.position);
+  ring.rotation.y = Math.PI / 2;
+  root.add(ring);
+
+  // Pelvis skin
+  const hipSkin = ball([0, 0.6, -0.1], 1, skinMat, [2.05, 1.5, 1.25]);
+  root.add(hipSkin); skinParts.push(hipSkin);
+  skinParts.forEach(p => p.visible = false);
+
+  // Ground
+  const grid = new THREE.GridHelper(14, 14, 0xc4ccd4, 0xd8dee4);
+  grid.position.y = -4.6;
+  scene.add(grid);
+
+  // ---------- Controls ----------
+  const $ = id => document.getElementById(id);
+  const state = { flex: 0, abd: 0, rot: 0, knee: 0 };
+  const deg = d => d * Math.PI / 180;
+
+  function apply() {
+    const s = right.side;
+    right.hip.rotation.x = -deg(state.flex);
+    right.hip.rotation.z = s * deg(state.abd);
+    right.hip.rotation.y = -s * deg(state.rot);
+    right.knee.rotation.x = deg(state.knee);
+    // keep foot roughly neutral relative to lower leg
+    right.foot.rotation.x = 0;
+
+    $('flexVal').textContent = state.flex >= 0 ? `굴곡 ${state.flex}°` : `신전 ${-state.flex}°`;
+    $('abdVal').textContent = state.abd >= 0 ? `외전 ${state.abd}°` : `내전 ${-state.abd}°`;
+    $('rotVal').textContent = state.rot >= 0 ? `내회전 ${state.rot}°` : `외회전 ${-state.rot}°`;
+    $('kneeVal').textContent = `${state.knee}°`;
+
+    const parts = [];
+    if (state.flex > 0) parts.push(`굴곡 ${state.flex}°`);
+    if (state.flex < 0) parts.push(`신전 ${-state.flex}°`);
+    if (state.abd > 0) parts.push(`외전 ${state.abd}°`);
+    if (state.abd < 0) parts.push(`내전 ${-state.abd}°`);
+    if (state.rot > 0) parts.push(`내회전 ${state.rot}°`);
+    if (state.rot < 0) parts.push(`외회전 ${-state.rot}°`);
+    $('motion').textContent = parts.length ? '고관절 ' + parts.join(' · ') : '중립 자세';
+  }
+
+  ['flex', 'abd', 'rot', 'knee'].forEach(k => {
+    $(k).addEventListener('input', e => { stopDemo(); state[k] = +e.target.value; apply(); });
+  });
+
+  // Presets (animated)
+  let tween = null;
+  function goTo(target) {
+    const from = { ...state };
+    const t0 = performance.now();
+    tween = now => {
+      const t = Math.min(1, (now - t0) / 600);
+      const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      for (const k in target) {
+        state[k] = Math.round(from[k] + (target[k] - from[k]) * e);
+        $(k).value = state[k];
+      }
+      apply();
+      if (t >= 1) tween = null;
+    };
+  }
+  document.querySelectorAll('.presets button').forEach(b => {
+    b.addEventListener('click', () => {
+      stopDemo();
+      const [flex, abd, rot, knee] = b.dataset.p.split(',').map(Number);
+      goTo({ flex, abd, rot, knee });
+    });
+  });
+
+  // Skin toggle
+  let skinOn = false;
+  $('skinBtn').addEventListener('click', () => {
+    skinOn = !skinOn;
+    skinParts.forEach(p => p.visible = skinOn);
+    $('skinBtn').classList.toggle('on', skinOn);
+    $('skinBtn').textContent = skinOn ? '피부 숨기기' : '피부 보기';
+  });
+
+  // Views
+  function setView(pos) {
+    camera.position.set(...pos);
+    controls.target.set(0, 0.2, 0);
+    controls.update();
+  }
+  $('frontBtn').addEventListener('click', () => setView([0, 1.5, 15]));
+  $('sideBtn').addEventListener('click', () => setView([-15, 1.5, 0.5]));
+
+  // Auto demo
+  let demo = false, demoT0 = 0;
+  function stopDemo() { demo = false; $('demoBtn').classList.remove('on'); }
+  $('demoBtn').addEventListener('click', () => {
+    demo = !demo; demoT0 = performance.now();
+    $('demoBtn').classList.toggle('on', demo);
+  });
+  function demoStep(now) {
+    const t = (now - demoT0) / 1000;
+    const phase = Math.floor(t / 4) % 3;
+    const w = Math.sin((t % 4) / 4 * Math.PI * 2);
+    state.flex = 0; state.abd = 0; state.rot = 0; state.knee = 0;
+    if (phase === 0) { state.flex = Math.round(w > 0 ? w * 100 : w * 25); state.knee = Math.max(0, Math.round(w * 80)); }
+    if (phase === 1) { state.abd = Math.round(w > 0 ? w * 40 : w * 25); }
+    if (phase === 2) { state.rot = Math.round(w > 0 ? w * 35 : w * 40); state.flex = 0; }
+    ['flex', 'abd', 'rot', 'knee'].forEach(k => $(k).value = state[k]);
+    apply();
+  }
+
+  // Resize
+  function resize() {
+    const w = view.clientWidth, h = view.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    const narrow = w / h < 0.9;
+    camera.updateProjectionMatrix();
+    return narrow;
+  }
+  const narrow = resize();
+  setView(narrow ? [8, 3, 15] : [7, 2.5, 12]);
+  window.addEventListener('resize', resize);
+  new ResizeObserver(resize).observe(view);
+
+  apply();
+  function loop(now) {
+    if (demo) demoStep(now);
+    else if (tween) tween(now);
+    ring.material.emissiveIntensity = 0.3 + 0.2 * Math.sin(now / 400);
+    controls.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
